@@ -17,6 +17,15 @@ ORIGIN_WEEK = 100008000
 # weekly interval in seconds (60 * 60 * 24 * 7)
 LEN_WEEK = 604800
 
+ISO_WEEKDAYS = {0: 'none',
+                1: 'monday',
+                2: 'tuesday',
+                3: 'wednesday',
+                4: 'thursday',
+                5: 'friday',
+                6: 'saturday',
+                7: 'sunday'}
+REORDER_ISO = [7, 1, 2, 3, 4, 5, 6]
 
 def tail(f, n):
     stdin, stdout = os.popen2("tail -{} {}".format(n, f))
@@ -28,7 +37,7 @@ def tail(f, n):
 
 def average(arr, absolute=False):
     """
-    :param absolute: make negative values positive
+    :param absolute: (list) make negative values positive
     """
     cur_avg = float()
     if not absolute:
@@ -42,24 +51,20 @@ def average(arr, absolute=False):
 
 def count_weeks(t):
     num_weeks = math.floor((t - ORIGIN_WEEK) / LEN_WEEK)
-    week_pos = (t - ORIGIN_WEEK) % LEN_WEEK
-    return num_weeks, week_pos
+    week_secs = (t - ORIGIN_WEEK) % LEN_WEEK
+    return num_weeks, week_secs
 
+def sort_by_list(dict_, list_):
+    for key in list_:
+        dict_.move_to_end(key)
+
+#sort_by_list(ordereddict, key_list)
 
 def main(args={}):
 
     D = Downloader()
     D.read_from_file()
     D.order()
-
-    iso_weekdays = {0:'none',
-                    1:'monday',
-                    2:'tuesday',
-                    3:'wednesday',
-                    4:'thursday',
-                    5:'friday',
-                    6:'saturday',
-                    7:'sunday'}
 
     fig = plt.figure()
     ax = fig.add_subplot(111, axisbg='#222222')
@@ -70,42 +75,93 @@ def main(args={}):
     # [ MTS, OPEN, CLOSE, HIGH, LOW, VOLUME ]
     Candle = namedtuple('Candle', ['date', 'open', 'close', 'high', 'low', 'volume'])
 
-    i = 0
     # Slice for quicker test iteration
-    for timestamp, entry in D.slice(3000).items():
-        candles.append(Candle(datetime.fromtimestamp(convert_to_python(timestamp)),
-                            *[fld for fld in entry]
-                            ))
+    for timestamp, entry in D.slice(100000).items():
+        last_entry = None
+        try:
+            candles.append(Candle(datetime.fromtimestamp(convert_to_python(timestamp)),
+                                *[fld for fld in entry[:5]]
+                                ))
+            last_entry = entry
+        except:
+            print(entry)
+            print(last_entry)
+            import pdb;pdb.set_trace()
+
+
     print(len(candles))
 
     # Pseudocode.
     # Average intra-daily movements to get average per day movement?
     # Then plot on a weekly graph (for every week, or all combined)
 
-    if args.get('what') == 'volume':
+    if 'volume' in args.get('what'):
         # Let's find the average volume across the week
-        volumes_by_weekday = {key: list() for key in iso_weekdays}
-        sum_by_weekday = {key: 0.0 for key in iso_weekdays}
+
+        volumes_by_weekday = {key: list() for key in ISO_WEEKDAYS}
+        sum_by_weekday = {key: 0.0 for key in ISO_WEEKDAYS}
+
+        volumes_by_week = OrderedDict()
+        sum_by_week_sec = OrderedDict()
+        average_by_week_sec = OrderedDict()
+
+        weeks = 0
         for candle in candles:
             volumes_by_weekday[candle.date.isoweekday()].append(candle.volume)
             sum_by_weekday[candle.date.isoweekday()] += candle.volume
 
+            num_weeks, week_secs = count_weeks(candle.date.timestamp())
+            if not num_weeks in volumes_by_week:
+                weeks += 1
+                volumes_by_week[num_weeks] = {}
+
+            if not week_secs in sum_by_week_sec:
+                sum_by_week_sec[week_secs] = 0.0
+
+            volumes_by_week[num_weeks][week_secs] = candle.volume
+            sum_by_week_sec[week_secs] += candle.volume
+
+
         average_by_day = OrderedDict()
         for day in volumes_by_weekday:
-            average_by_day[iso_weekdays[day]] = average(volumes_by_weekday[day])
+            average_by_day[day] = average(volumes_by_weekday[day])
 
-        pprint(average_by_day)
+        # sort first
+        sort_by_list(sum_by_week_sec, sorted(list(sum_by_week_sec.keys())))
+        for week_secs in sum_by_week_sec:
+            average_by_week_sec[week_secs] = float(sum_by_week_sec[week_secs]) / weeks
+        # order
+        # ordered_keys = sorted(list(average_by_week_sec.keys()))
+        # sort_by_list(average_by_week_sec, ordered_keys)
 
+        print('length of average_by_week_sec: {}'.format(len(average_by_week_sec)))
 
-        print(iso_weekdays.values())
-        #import pdb;pdb.set_trace()
-        #for day in iso_weekdays:
+        normalized_week_seconds = [(x / LEN_WEEK * 7.0) for x in list(average_by_week_sec.keys())]
 
         hex_colour = '%0.2X' % (min(180, 255))
-        ax.plot(range(len( list(iso_weekdays.values())[1:] )),
-                list(sum_by_weekday.values())[1:],
-                '#' + '{}{}{}'.format(hex_colour, hex_colour, hex_colour))
-        ax.set_xlabel("Days of week from Sunday")
+
+        # averaged weekly values
+        ax.plot(normalized_week_seconds,
+                list(average_by_week_sec.values()),
+                '#{}{}{}'.format(hex_colour, hex_colour, hex_colour))
+
+        # # summed weeks values together
+        # ax.plot(normalized_week_seconds,
+        #         list(sum_by_week_sec.values()),
+        #         '#{}{}{}'.format(hex_colour, hex_colour, hex_colour))
+
+        # sum by week day of volume
+        #import pdb;pdb.set_trace()
+        ax.plot([i + 0.5 for i, x in enumerate(REORDER_ISO)],
+                [average_by_day[d] for d in REORDER_ISO],
+                '#FF8866')
+
+        for x in range(8):
+            ax.plot([x, x],
+                    [0, 700],
+                    '#AAEEFF')
+
+        ax.set_xlabel("Days of week from Sunday Morning 0AM")
         if args.get('what') == 'volume':
             ax.set_ylabel("Volume")
 
@@ -117,148 +173,103 @@ def main(args={}):
 
 
 
+    else:
+
+        prev_date = None
+        # all the completed orders buy and sell averaged together
+        daily_averaged = {}
+
+        # multiplier based on previous day, * 100 = percentage
+        daily_change = {}
+
+        daily_values = []
+        one_day = timedelta(days=1)
+
+        for i, quote in enumerate(quotes):
+            d = quote.date
+            var = quote.price
+
+            # for very first iteration only
+            if prev_date is None:
+                prev_date = d.date()
+
+            if d.date() != prev_date:
+
+                daily_averaged[prev_date] = average(daily_values)
+                print('Averaged price of {} is {}'.format(
+                      (prev_date, daily_averaged[prev_date])))
+
+                # calculate change
+                second_prev_day = prev_date - one_day
+                if second_prev_day in daily_averaged:
+
+                    prev_average = daily_averaged[second_prev_day]
+                    move = daily_averaged[prev_date] - prev_average
+                    if move and prev_average:
+                        daily_change[prev_date] = move / prev_average
+                    else:
+                        daily_change[prev_date] = 0.0
+                    print('\tmovement : {.3f} %%'.format(daily_change[prev_date] * 100))
+
+                prev_date = d.date()
+                daily_values = []
+
+            else:
+                daily_values.append(var)
+
+        daily_averaged[d.date()] = average(daily_values)
+        print('Averaged price of {} is {}'.format(
+              (d.date(), daily_averaged[d.date()]))
+            )
+
+        prev_date = d.date() - one_day
+        if prev_date in daily_averaged:
+            prev_average = daily_averaged[prev_date]
+            move = daily_averaged[d.date()] - prev_average
+            if move and prev_average:
+                daily_change[d.date()] = move / prev_average
+            else:
+                daily_change[d.date()] = 0.0
 
 
 
-    prev_date = None
-    # all the completed orders buy and sell averaged together
-    daily_averaged = {}
+        days = daily_averaged.keys()
+        days.sort()
+        #days.reverse()
+        print(days[0:15])
 
-    # multiplier based on previous day, * 100 = percentage
-    daily_change = {}
+        week = []
+        movements_by_weekday = dict((x, []) for x in range(1, 8))
 
-    daily_values = []
-    one_day = timedelta(days=1)
+        colour = 50
+        for day in days:
+            if not day in daily_change:
+                print('SKIPPING {}' % day)
+                continue
 
-    for i, quote in enumerate(quotes):
-        d = quote.date
-        var = quote.price
+            print(day.isoweekday())
+            if day.isoweekday() == 7:
+                print('WEEK : {}' % week)
+                colour += 4
+                hex_colour = '%0.2X' % (min(colour, 255))
+                ax.plot(range(len(week)), week, '#' + '{}{}{}' % (hex_colour, hex_colour, hex_colour))
 
-        # for very first iteration only
-        if prev_date is None:
-            prev_date = d.date()
+                week = [daily_change[day]]
 
-        if d.date() != prev_date:
+            movements_by_weekday[day.isoweekday()].append(daily_change[day])
+            week = [daily_change[day]] + week
 
-            daily_averaged[prev_date] = average(daily_values)
-            print('Averaged price of {} is {}'.format(
-                  (prev_date, daily_averaged[prev_date])))
+        weekday_averaged = {}
+        weekday_volatility = {}
+        for day_index in movements_by_weekday:
+            weekday_averaged[day_index] = average(movements_by_weekday[day_index])
+            weekday_volatility[day_index] = average(movements_by_weekday[day_index], abso=True)
 
-            # calculate change
-            second_prev_day = prev_date - one_day
-            if second_prev_day in daily_averaged:
+        ax.plot(range(len(movements_by_weekday)), weekday_volatility.values(), '#FF7744')
+        ax.plot(range(len(movements_by_weekday)), weekday_averaged.values(), '#4477FF')
 
-                prev_average = daily_averaged[second_prev_day]
-                move = daily_averaged[prev_date] - prev_average
-                if move and prev_average:
-                    daily_change[prev_date] = move / prev_average
-                else:
-                    daily_change[prev_date] = 0.0
-                print('\tmovement : {.3f} %%'.format(daily_change[prev_date] * 100))
+        plt.show()
 
-            prev_date = d.date()
-            daily_values = []
-
-        else:
-            daily_values.append(var)
-
-    daily_averaged[d.date()] = average(daily_values)
-    print('Averaged price of {} is {}'.format(
-          (d.date(), daily_averaged[d.date()]))
-        )
-
-    prev_date = d.date() - one_day
-    if prev_date in daily_averaged:
-        prev_average = daily_averaged[prev_date]
-        move = daily_averaged[d.date()] - prev_average
-        if move and prev_average:
-            daily_change[d.date()] = move / prev_average
-        else:
-            daily_change[d.date()] = 0.0
-
-
-
-    days = daily_averaged.keys()
-    days.sort()
-    #days.reverse()
-    print(days[0:15])
-
-    week = []
-    movements_by_weekday = dict((x, []) for x in range(1, 8))
-
-    colour = 50
-    for day in days:
-        if not day in daily_change:
-            print('SKIPPING {}' % day)
-            continue
-
-        print(day.isoweekday())
-        if day.isoweekday() == 7:
-            print('WEEK : {}' % week)
-            colour += 4
-            hex_colour = '%0.2X' % (min(colour, 255))
-            ax.plot(range(len(week)), week, '#' + '{}{}{}' % (hex_colour, hex_colour, hex_colour))
-
-            week = [daily_change[day]]
-
-        movements_by_weekday[day.isoweekday()].append(daily_change[day])
-        week = [daily_change[day]] + week
-
-    weekday_averaged = {}
-    weekday_volatility = {}
-    for day_index in movements_by_weekday:
-        weekday_averaged[day_index] = average(movements_by_weekday[day_index])
-        weekday_volatility[day_index] = average(movements_by_weekday[day_index], abso=True)
-
-    #import pdb;pdb.set_trace()
-    ax.plot(range(len(movements_by_weekday)), weekday_volatility.values(), '#FF7744')
-    ax.plot(range(len(movements_by_weekday)), weekday_averaged.values(), '#4477FF')
-
-    plt.show()
-
-    #array=np.rec.array( quotes )
-
-
-
-    # format the ticks
-    #ax.xaxis.set_major_locator(years)
-    #ax.xaxis.set_major_formatter(dayFormatter)
-    #ax.xaxis.set_minor_locator(months)
-
-    '''
-    ax.plot(range(5), values[:5], '#FFFFFF')
-    ax.plot(range(5), vol_values[:5], '#FF7744')
-    '''
-    #ax.plot([4,3,2,1], [4,3,4,5], '#CCBBAA')
-
-
-
-
-
-
-
-
-
-
-
-
-    '''fig = figure()
-    fig.subplots_adjust(bottom=0.2)
-    ax = fig.add_subplot(111)
-    ax.xaxis.set_major_locator(mondays)
-    ax.xaxis.set_minor_locator(alldays)
-    ax.xaxis.set_major_formatter(weekFormatter)
-    #ax.xaxis.set_minor_formatter(dayFormatter)
-    
-    #plot_day_summary(ax, quotes, ticksize=3)
-    candlestick(ax, quotes, width=0.6)
-    
-    ax.xaxis_date()
-    ax.autoscale_view()
-    setp( gca().get_xticklabels(), rotation=45, horizontalalignment='right')
-    
-    show()
-    '''
 
 if __name__ == '__main__':
 
