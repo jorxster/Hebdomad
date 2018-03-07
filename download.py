@@ -11,6 +11,7 @@ HIGH 	float 	Highest execution during the time frame
 LOW 	float 	Lowest execution during the timeframe
 VOLUME 	float 	Quantity of symbol traded within the timeframe
 """
+from datetime import datetime
 import inspect
 import os
 import pickle
@@ -196,19 +197,49 @@ class Downloader(object):
             print(time.ctime(convert_to_python(k)))
             pprint.pprint(self.data[k])
 
-    def slice(self, x):
-        print('{}::{}'.format('>'*len(inspect.stack()), inspect.stack()[0][3]))
-        keys = self.data.keys()
-        length = len(keys)
+    def slice(self, x=None, start=None, end=None):
 
-        i = 0
+        if not x and not start and not end:
+            return self.data
+
+        keys = self.data.keys()
         sliced = OrderedDict()
-        for k in keys:
-            i += 1
-            if i > (length - x):
-                sliced[k] = self.data[k]
+
+        if x:
+            print('{}::{}'.format('>'*len(inspect.stack()), inspect.stack()[0][3]))
+            length = len(keys)
+
+            i = 0
+            for k in keys:
+                i += 1
+                if i > (length - x):
+                    sliced[k] = self.data[k]
+            return sliced
+
+        assert start
+        start_date = str_to_date(start)
+
+        if end:
+            # start and end slice supplied
+            end_date = str_to_date(end)
+
+            for k in keys:
+                if end_date > datetime.fromtimestamp(convert_to_python(k)) > start_date:
+                    sliced[k] = self.data[k]
+
+        else:
+            for k in keys:
+                if datetime.fromtimestamp(convert_to_python(k)) > start_date:
+                    sliced[k] = self.data[k]
 
         return sliced
+
+def str_to_date(string):
+    year = string[:4]
+    month = string[4:6]
+    day = string[6:]
+    date = datetime(int(year), int(month), int(day))
+    return date
 
 def convert_to_python(time):
     #print('{}::{}'.format('>'*len(inspect.stack()), inspect.stack()[0][3]))
