@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from pylab import *
 from matplotlib.dates import  DateFormatter, WeekdayLocator, HourLocator, DayLocator, MONDAY
 import numpy as np
@@ -304,7 +304,7 @@ def main(args={}):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Graph weekly averages')
-    parser.add_argument('-w', '--what', help='What to graph', required=True)
+    parser.add_argument('-w', '--what', help='What to graph (move, volume, range)', required=True)
     parser.add_argument('-st', '--start', help='Start time to slice, YYYYMMDD', required=False)
     parser.add_argument('-et', '--end', help='End time to slice, YYYYMMDD', required=False)
     parser.add_argument('-sh', '--shadow', help='Fade previous weeks', required=False)
