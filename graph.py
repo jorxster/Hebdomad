@@ -3,10 +3,10 @@ from pylab import *
 from matplotlib.dates import  DateFormatter, WeekdayLocator, HourLocator, DayLocator, MONDAY
 import numpy as np
 import os, sys, argparse
-from pprint import pprint
 
 from collections import namedtuple, OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime
+from dateutil import tz
 
 from download import Downloader, convert_to_python, str_to_date
 
@@ -26,6 +26,7 @@ ISO_WEEKDAYS = {0: 'none',
                 6: 'saturday',
                 7: 'sunday'}
 REORDER_ISO = [7, 1, 2, 3, 4, 5, 6]
+
 
 def tail(f, n):
     stdin, stdout = os.popen2("tail -{} {}".format(n, f))
@@ -67,7 +68,9 @@ def main(args={}):
     D.order()
 
     fig = plt.figure()
-    ax = fig.add_subplot(111, axisbg='#222222')
+    ax = fig.add_subplot(111)
+    BG = 0.0 # 0.22
+    ax.set_facecolor((BG, BG, BG))
 
     # CSV in integer time stamp, price traded, amount traded
     candles=[]
@@ -78,12 +81,15 @@ def main(args={}):
     # Slice for quicker test iteration
     # 96 candles = 1 day
     # 672 candles = 1 week
-    #for timestamp, entry in D.slice(20000).items():
     for timestamp, entry in D.slice(start=args.get('start'),
                                     end=args.get('end')).items():
         last_entry = None
         try:
-            candles.append(Candle(datetime.fromtimestamp(convert_to_python(timestamp)),
+            utc_dt = datetime.fromtimestamp(convert_to_python(timestamp)
+                                            ).replace(tzinfo=tz.gettz('UTC'))
+            local_dt = utc_dt.astimezone(tz.tzlocal())
+
+            candles.append(Candle(local_dt,
                                 *[fld for fld in entry[:5]]
                                 ))
             last_entry = entry
@@ -145,12 +151,14 @@ def main(args={}):
         # averaged weekly values
         ax.plot(normalized_week_seconds,
                 list(average_by_week_sec.values()),
-                '#{}{}{}'.format(hex_colour, hex_colour, hex_colour))
+                '#{}{}{}'.format(hex_colour, hex_colour, hex_colour),
+                linewidth=0.4)
 
         # sum by week day of volume, daily summary
         ax.plot([i + 0.5 for i, x in enumerate(REORDER_ISO)],
                 [average_by_day[d] for d in REORDER_ISO],
-                '#FF8866')
+                '#FF8866',
+                linewidth=0.3)
 
         max_value = max(list(average_by_week_sec.values()))
         min_value = min(list(average_by_week_sec.values()))
@@ -158,7 +166,7 @@ def main(args={}):
     # ----------------------------------------------------------------------------------------------------------------
     # ----------------------------------------------------------------------------------------------------------------
 
-    elif 'move' in args.get('what') or 'range' in args.get('what'):
+    elif args.get('what') in ['move', 'range']:
         # Let's find the average open-close diff across the week
 
         wick = False
@@ -187,7 +195,7 @@ def main(args={}):
             diff_by_weekday[candle.date.isoweekday()].append(movement)
 
             # NOT USED
-            sum_by_weekday[candle.date.isoweekday()] += movement
+            # sum_by_weekday[candle.date.isoweekday()] += movement
 
             num_weeks, week_secs = count_weeks(candle.date.timestamp())
             if not num_weeks in diff_by_sec:
@@ -238,7 +246,7 @@ def main(args={}):
                 averaged_move = float(array[week_secs]) / i
                 # offset by previous amount
 
-                if not week_secs in sum_inc:
+                if week_secs not in sum_inc:
                     sum_inc[week_secs] = 0.0
                 sum_inc[week_secs] += averaged_move
 
@@ -256,7 +264,8 @@ def main(args={}):
             # averaged weekly values
             ax.plot(normalized_week_seconds,
                     list(chartable.values()),
-                    '#{}{}{}'.format(hex_colour, hex_colour, hex_colour))
+                    '#{}{}{}'.format(hex_colour, hex_colour, hex_colour),
+                    linewidth=0.3)
 
         # order
         print('Len of average_by_week_sec: {}'.format(len(average_by_week_sec)))
@@ -265,37 +274,65 @@ def main(args={}):
         # averaged weekly values
         ax.plot(normalized_week_seconds,
                 list(average_by_week_sec.values()),
-                '#FFAA00',)#'#{}{}{}'.format(hex_colour, hex_colour, hex_colour))
+                '#FFBB00',
+                linewidth=0.55)
+        #'#{}{}{}'.format(hex_colour, hex_colour, hex_colour))
 
         # sum by week day of volume, daily summary
         ax.plot([i + 0.5 for i, x in enumerate(REORDER_ISO)],
                 [average_by_day[d] for d in REORDER_ISO],
-                '#99EEFF')
+                '#99EEFF',
+                linewidth=0.65)
 
         max_value = max(list(average_by_week_sec.values()))
         min_value = min(list(average_by_week_sec.values()))
+
+    if args.get('now'):
+        now_time = datetime.now().timestamp()
+        num_weeks, week_secs = count_weeks(now_time)
+        normalized_week_now = (week_secs / LEN_WEEK * 7.0)
+        ax.plot([normalized_week_now, normalized_week_now],
+                [min_value, max_value],
+                '#33EE44',
+                linewidth=0.5)
+
+    ax.set_aspect(52)
+    ax.set_xlim(0,7)
+    ax.set_ylim(args.get('ymin', -0.03),
+                args.get('ymax', 0.05))
 
     # day dividers
     for x in range(8):
         ax.plot([x, x],
                 [min_value, max_value],
-                '#3366BB')
+                '#3366BB',
+                linewidth=0.65)
+
     # day dividers
-        ax.plot([0, 8],
-                [0, 0],
-                '#3366BB')
+    ax.plot([0, 7],
+            [0, 0],
+            '#3366BB',
+            linewidth=0.65)
 
     xlabel = "Days of week from Sunday Morning 0 AM"
     if args.get('start'):
         xlabel += '\nFrom {}'.format(str_to_date(args.get('start')))
     if args.get('end'):
         xlabel += '\nTo {}'.format(str_to_date(args.get('end')))
+    if args.get('what') == 'move':
+        xlabel += '\nGraphing Movement (Open - Close) of 15m candles'
+    elif args.get('what') == 'range':
+        xlabel += '\nGraphing range (High - Low) of 15m candles in direction ' \
+                  'of open > close'
 
     ax.set_xlabel(xlabel)
     if args.get('what') == 'volume':
         ax.set_ylabel("Volume")
 
-    plt.show()
+    if args.get('out'):
+        plt.savefig(args.get('out'), bbox_inches='tight', dpi=500)
+    else:
+        plt.show()
 
     print('done')
     sys.exit(0)
@@ -304,12 +341,32 @@ def main(args={}):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Graph weekly averages')
-    parser.add_argument('-w', '--what', help='What to graph (move, volume, range)', required=True)
-    parser.add_argument('-st', '--start', help='Start time to slice, YYYYMMDD', required=False)
-    parser.add_argument('-et', '--end', help='End time to slice, YYYYMMDD', required=False)
-    parser.add_argument('-sh', '--shadow', help='Fade previous weeks', required=False)
-
+    parser.add_argument('-w', '--what',
+                        help='What to graph (move, volume, range). Move == '
+                             'candle open/close. Range == candle high/low',
+                        required=True)
+    parser.add_argument('-st', '--start', help='Start time to slice, YYYYMMDD',
+                        required=False)
+    parser.add_argument('-et', '--end', help='End time to slice, YYYYMMDD',
+                        required=False)
+    parser.add_argument('-sh', '--shadow', help='Fade previous weeks',
+                        required=False)
+    parser.add_argument('-n', '--now', help='Show the current time on chart',
+                        required=False, default=False)
+    parser.add_argument('-o', '--out', help='File to save to',
+                        required=False)
     args = vars(parser.parse_args())
-    # Todo: add time slicing ability
 
     main(args=args)
+
+"""
+In [25]: i = 1                                                                                                                                                                                                                     
+
+In [26]: first = datetime.datetime(2019, 1, 6)                                                                                                                                                                                     
+
+In [27]: while first < now: 
+    ...:     print("python src/graph.py -w move -st {}{:02d}{:02d} --out 1_render_2019/weekly_v01.{:03d}.png".format(first.year, first.month, first.day, i)) 
+    ...:     i += 1 
+    ...:     first += delta 
+
+"""

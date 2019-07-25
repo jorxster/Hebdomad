@@ -26,8 +26,10 @@ FIFTEEN_MIN = 900000
 
 # when querying candles, maximum number allowed
 MAX_ALLOWED_CANDLES = 120
-
+# 1490472900000
+# 1490465700000
 DAT_FILE = os.path.dirname(__file__) + '_bitfinex_15m.dat'
+
 
 class Downloader(object):
 
@@ -44,7 +46,7 @@ class Downloader(object):
 
     def query_time(self, start=1490472900000, end=1490465700000, scale='15m'):
         """
-        Available values: '1m', '5m', '15m', '30m', '1h', '3h', '6h', '12h', '1D', '7D', '14D', '1M'
+        Available scale values: '1m', '5m', '15m', '30m', '1h', '3h', '6h', '12h', '1D', '7D', '14D', '1M'
         """
         print('{}::{}'.format('>'*len(inspect.stack()), inspect.stack()[0][3]))
         attrs = {'SCALE': scale,
@@ -66,7 +68,6 @@ class Downloader(object):
 
         except Exception:
             raise RuntimeError('Unexpected Result : \n\t{}'.format(r.json()))
-
 
     def write_to_file(self, path=None):
         print('{}::{}'.format('>'*len(inspect.stack()), inspect.stack()[0][3]))
@@ -101,7 +102,7 @@ class Downloader(object):
                     print('Running update() on time {} \n\t\t to {}'.format(fetch_start, fetch_end))
                     self.query_time(end=fetch_end,
                                     start=fetch_start)
-                    time.sleep(1.5)
+                    time.sleep(3.0)
                     break
 
                 except Exception:
